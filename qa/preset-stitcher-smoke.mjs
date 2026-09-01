@@ -1,3 +1,4 @@
+// QA trigger: 2026-09-01 isolated Tavern smoke
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
