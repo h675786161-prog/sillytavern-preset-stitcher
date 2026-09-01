@@ -1,0 +1,55 @@
+{
+  "temperature": 0.93,
+  "top_p": 0.97,
+  "openai_max_tokens": 4096,
+  "prompts": [
+    {
+      "identifier": "qa_donor_prompt",
+      "name": "QA donor prompt",
+      "enabled": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100,
+      "role": "system",
+      "content": "<qa_donor>Keep continuity across scenes and preserve established facts.</qa_donor>"
+    },
+    {
+      "identifier": "qa_donor_style",
+      "name": "QA donor style",
+      "enabled": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 110,
+      "role": "system",
+      "content": "Write concrete actions before interpretation."
+    }
+  ],
+  "prompt_order": [
+    {
+      "character_id": 100001,
+      "order": [
+        { "identifier": "qa_donor_prompt", "enabled": true },
+        { "identifier": "qa_donor_style", "enabled": true }
+      ]
+    }
+  ],
+  "extensions": {
+    "regex_scripts": [
+      {
+        "id": "qa-regex-1",
+        "scriptName": "QA donor regex",
+        "findRegex": "/<qa_donor>([\\s\\S]*?)<\\/qa_donor>/g",
+        "replaceString": "$1",
+        "trimStrings": [],
+        "placement": [2],
+        "disabled": false,
+        "markdownOnly": false,
+        "promptOnly": false,
+        "runOnEdit": true,
+        "substituteRegex": 0,
+        "minDepth": null,
+        "maxDepth": null
+      }
+    ]
+  }
+}
