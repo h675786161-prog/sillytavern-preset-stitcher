@@ -1,0 +1,118 @@
+name: Preset Stitcher Fake Tavern Smoke
+
+on:
+  push:
+    branches:
+      - 'qa/fake-tavern-20260901'
+    paths:
+      - '.github/workflows/fake-tavern-smoke.yml'
+      - 'qa/**'
+      - '玲·通用预设缝合机-v2.3.0.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preset-stitcher-fake-tavern-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fake-tavern-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate script JSON and JavaScript syntax
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = '玲·通用预设缝合机-v2.3.0.json';
+          const doc = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (doc.type !== 'script' || typeof doc.content !== 'string') throw new Error('invalid Tavern Helper script json');
+          new Function(doc.content);
+          console.log(`Validated ${doc.name} / ${doc.id}`);
+          NODE
+
+      - name: Clone exact SillyTavern 1.18.0 runtime
+        shell: bash
+        run: |
+          rm -rf /tmp/preset-stitcher-tavern
+          git clone --filter=blob:none --no-checkout https://github.com/SillyTavern/SillyTavern.git /tmp/preset-stitcher-tavern
+          git -C /tmp/preset-stitcher-tavern fetch origin 8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8 --depth=1
+          git -C /tmp/preset-stitcher-tavern checkout --detach 8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8
+          echo "Runtime commit: $(git -C /tmp/preset-stitcher-tavern rev-parse HEAD)"
+
+      - name: Install SillyTavern dependencies
+        working-directory: /tmp/preset-stitcher-tavern
+        run: npm ci
+
+      - name: Start isolated SillyTavern
+        shell: bash
+        run: |
+          cd /tmp/preset-stitcher-tavern
+          nohup node server.js --listen --port 8000 --disableCsrf > "$GITHUB_WORKSPACE/fake-tavern.log" 2>&1 &
+          echo $! > /tmp/preset-stitcher-tavern.pid
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              echo "SillyTavern is ready."
+              exit 0
+            fi
+            if ! kill -0 "$(cat /tmp/preset-stitcher-tavern.pid)" 2>/dev/null; then
+              echo "SillyTavern exited early."
+              cat "$GITHUB_WORKSPACE/fake-tavern.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for SillyTavern."
+          cat "$GITHUB_WORKSPACE/fake-tavern.log"
+          exit 1
+
+      - name: Prepare browser harness
+        shell: bash
+        run: |
+          rm -rf /tmp/preset-stitcher-browser
+          mkdir -p /tmp/preset-stitcher-browser
+          cd /tmp/preset-stitcher-browser
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright-core@1.55.0
+          BROWSER="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          echo "BROWSER_EXECUTABLE=$BROWSER" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_CORE_ENTRY=file:///tmp/preset-stitcher-browser/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
+
+      - name: Run real Tavern iframe smoke
+        env:
+          STITCHER_JSON: ${{ github.workspace }}/玲·通用预设缝合机-v2.3.0.json
+          QA_REPORT: ${{ github.workspace }}/preset-stitcher-smoke-report.json
+          QA_SCREENSHOT: ${{ github.workspace }}/preset-stitcher-smoke.png
+          QA_RESULT: ${{ github.workspace }}/preset-stitcher-smoke-output.json
+        run: node qa/preset-stitcher-smoke.mjs
+
+      - name: Stop isolated runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/preset-stitcher-tavern.pid ]; then
+            kill "$(cat /tmp/preset-stitcher-tavern.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preset-stitcher-fake-tavern-smoke
+          path: |
+            preset-stitcher-smoke-report.json
+            preset-stitcher-smoke.png
+            preset-stitcher-smoke-output.json
+            fake-tavern.log
+          if-no-files-found: ignore
